@@ -23,7 +23,7 @@ export default function TabletPage() {
     horarioUso: "--:-- às --:--",
   });
 
-  useEffect(() => {
+useEffect(() => {
     async function carregarDadosDaSala() {
       const { data: { user } } = await supabase.auth.getUser();
       
@@ -45,18 +45,22 @@ export default function TabletPage() {
 
         if (erroSala) throw erroSala;
 
-        // 2. Busca a reserva
+        // Captura a data de hoje baseada no fuso horário local do tablet (Formato: YYYY-MM-DD)
+        const hoje = new Date().toLocaleDateString("pt-BR").split("/").reverse().join("-");
+
+        // 2. Busca a reserva filtrando estritamente pela data de hoje
         const { data: reservaBD, error: erroReserva } = await supabase
           .from("reservas")
           .select("cliente, inicio, fim")
           .eq("sala_numero", numeroSala)
+          .eq("data", hoje) // <--- O filtro diário está aqui
           .order("id", { ascending: false })
           .limit(1)
           .maybeSingle();
 
         if (erroReserva) throw erroReserva;
 
-        // 3. Monta a tela
+        // 3. Monta a tela baseado no resultado
         if (reservaBD) {
           const horaInicio = reservaBD.inicio.substring(0, 5);
           const horaFim = reservaBD.fim.substring(0, 5);
@@ -72,7 +76,7 @@ export default function TabletPage() {
             nomeSala: salaBD.nome,
             status: "🟢 DISPONÍVEL",
             clienteAtual: "Livre para Uso",
-            horarioUso: "Sem agendamentos no momento",
+            horarioUso: "Sem agendamentos para hoje",
           });
         }
       } catch (err: any) {
