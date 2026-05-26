@@ -23,7 +23,7 @@ export default function TabletPage() {
     horarioUso: "--:-- às --:--",
   });
 
-useEffect(() => {
+  useEffect(() => {
     async function carregarDadosDaSala() {
       const { data: { user } } = await supabase.auth.getUser();
       
@@ -32,36 +32,34 @@ useEffect(() => {
         return;
       }
 
-      // Pega "001" do e-mail "sala001@sistema.com"
       const numeroSala = user.email?.match(/\d+/)?.[0] || "001";
 
       try {
-        // 1. Busca a sala (tudo minúsculo, igual criamos no SQL)
+        // 1. Agora nós buscamos o STATUS da sala também, pois o Cron está atualizando ele!
         const { data: salaBD, error: erroSala } = await supabase
           .from("salas")
-          .select("nome")
+          .select("nome, status")
           .eq("numero", numeroSala)
           .single();
 
         if (erroSala) throw erroSala;
 
-        // Captura a data de hoje baseada no fuso horário local do tablet (Formato: YYYY-MM-DD)
         const hoje = new Date().toLocaleDateString("pt-BR").split("/").reverse().join("-");
 
-        // 2. Busca a reserva filtrando estritamente pela data de hoje
+        // 2. Busca a reserva do dia para pegar o nome do cliente
         const { data: reservaBD, error: erroReserva } = await supabase
           .from("reservas")
           .select("cliente, inicio, fim")
           .eq("sala_numero", numeroSala)
-          .eq("data", hoje) // <--- O filtro diário está aqui
-          .order("id", { ascending: false })
+          .eq("data", hoje)
+          .order("inicio", { ascending: true })
           .limit(1)
           .maybeSingle();
 
         if (erroReserva) throw erroReserva;
 
-        // 3. Monta a tela baseado no resultado
-        if (reservaBD) {
+        // 3. A regra de negócio agora confia cegamente no status que o Banco de Dados definiu
+        if (salaBD.status === 'OCUPADA' && reservaBD) {
           const horaInicio = reservaBD.inicio.substring(0, 5);
           const horaFim = reservaBD.fim.substring(0, 5);
 
@@ -76,7 +74,8 @@ useEffect(() => {
             nomeSala: salaBD.nome,
             status: "🟢 DISPONÍVEL",
             clienteAtual: "Livre para Uso",
-            horarioUso: "Sem agendamentos para hoje",
+            // Mostra a próxima reserva, se houver, ou a mensagem vazia
+            horarioUso: reservaBD ? `Próxima reserva hoje: ${reservaBD.inicio.substring(0, 5)}h` : "Sem agendamentos para hoje",
           });
         }
       } catch (err: any) {
@@ -88,6 +87,31 @@ useEffect(() => {
     }
 
     carregarDadosDaSala();
+
+    // --- NOVA SINCRONIZAÇÃO DUPLA ---
+    const canalRealtime = supabase
+      .channel('room-status')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'salas' }, // Escuta o relógio (Cron)
+        (payload) => {
+          console.log("O tempo bateu! Status da sala atualizado no banco.", payload);
+          carregarDadosDaSala(); 
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'reservas' }, // Escuta novos cadastros manuais
+        (payload) => {
+          console.log("Nova reserva cadastrada ou alterada.", payload);
+          carregarDadosDaSala(); 
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(canalRealtime);
+    };
   }, [router]);
 
   const handleLogout = async () => {
@@ -106,7 +130,6 @@ useEffect(() => {
   return (
     <div className="flex min-h-screen flex-col items-center justify-between bg-slate-950 p-12 text-white relative">
       
-      {/* Botão de Logout (Pequeno e no canto para não atrapalhar o visual) */}
       <button 
         onClick={handleLogout}
         className="absolute top-4 right-4 bg-red-600/20 text-red-500 hover:bg-red-600 hover:text-white px-4 py-2 rounded text-sm transition-all"
@@ -137,7 +160,6 @@ useEffect(() => {
         Espaço do Banner Inferior
       </div>
       
-      {/* Exibe erro se algo der errado */}
       {erro && <p className="absolute bottom-4 text-red-500">{erro}</p>}
     </div>
   );
