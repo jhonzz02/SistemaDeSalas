@@ -15,7 +15,7 @@ export default function TabletPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
-  
+
   const [dados, setDados] = useState<DadosTela>({
     nomeSala: "Carregando...",
     status: "🟢 DISPONÍVEL",
@@ -26,7 +26,7 @@ export default function TabletPage() {
   useEffect(() => {
     async function carregarDadosDaSala() {
       const { data: { user } } = await supabase.auth.getUser();
-      
+
       if (!user) {
         router.push("/login");
         return;
@@ -46,12 +46,16 @@ export default function TabletPage() {
 
         const hoje = new Date().toLocaleDateString("pt-BR").split("/").reverse().join("-");
 
-        // 2. Busca a reserva do dia para pegar o nome do cliente
+        // Pega a hora atual no formato "HH:MM:SS"
+        const agora = new Date().toLocaleTimeString("pt-BR", { hour12: false });
+
+        // 2. Busca a reserva ATUAL ou a PRÓXIMA do dia
         const { data: reservaBD, error: erroReserva } = await supabase
           .from("reservas")
           .select("cliente, inicio, fim")
           .eq("sala_numero", numeroSala)
           .eq("data", hoje)
+          .gte("fim", agora)
           .order("inicio", { ascending: true })
           .limit(1)
           .maybeSingle();
@@ -88,29 +92,33 @@ export default function TabletPage() {
 
     carregarDadosDaSala();
 
-    // --- NOVA SINCRONIZAÇÃO DUPLA ---
+// --- NOVA SINCRONIZAÇÃO HÍBRIDA ---
+    
+    // 1. O Realtime continua aqui para pegar reservas feitas na hora pelo Admin
     const canalRealtime = supabase
       .channel('room-status')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'salas' }, // Escuta o relógio (Cron)
-        (payload) => {
-          console.log("O tempo bateu! Status da sala atualizado no banco.", payload);
-          carregarDadosDaSala(); 
-        }
+        { event: '*', schema: 'public', table: 'salas' }, 
+        () => carregarDadosDaSala()
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'reservas' }, // Escuta novos cadastros manuais
-        (payload) => {
-          console.log("Nova reserva cadastrada ou alterada.", payload);
-          carregarDadosDaSala(); 
-        }
+        { event: '*', schema: 'public', table: 'reservas' }, 
+        () => carregarDadosDaSala()
       )
       .subscribe();
 
+    // 2. NOVO: Relógio interno do Tablet
+    // Roda silenciosamente a cada 15 segundos para conferir se alguma reserva começou ou terminou
+    const relogioLocal = setInterval(() => {
+      carregarDadosDaSala();
+    }, 15000); 
+
     return () => {
+      // Limpa os dois motores se o tablet sair da tela
       supabase.removeChannel(canalRealtime);
+      clearInterval(relogioLocal);
     };
   }, [router]);
 
@@ -129,8 +137,8 @@ export default function TabletPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-between bg-slate-950 p-12 text-white relative">
-      
-      <button 
+
+      <button
         onClick={handleLogout}
         className="absolute top-4 right-4 bg-red-600/20 text-red-500 hover:bg-red-600 hover:text-white px-4 py-2 rounded text-sm transition-all"
       >
@@ -159,7 +167,7 @@ export default function TabletPage() {
       <div className="w-full text-center text-sm text-gray-600 tracking-widest uppercase">
         Espaço do Banner Inferior
       </div>
-      
+
       {erro && <p className="absolute bottom-4 text-red-500">{erro}</p>}
     </div>
   );
