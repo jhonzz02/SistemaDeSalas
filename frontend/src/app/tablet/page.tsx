@@ -21,9 +21,9 @@ interface DadosTela {
 // 1. Nova Lista de imagens para o carrossel (Teste com 4 imagens iguais)
 const IMAGENS_CARROSSEL = [
   "/itaipava_logo.jpg", 
-  "/itaipava_logo.jpg",
-  "/itaipava_logo.jpg",
-  "/itaipava_logo.jpg"
+  "/fonte_nova.jpeg",
+  "/qpc.jpeg",
+  "/sdb.jpeg"
 ];
 
 export default function TabletPage() {
